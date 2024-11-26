@@ -1,15 +1,25 @@
 {
   "ClothingSubPalEffects": {
-    "8": {
-      "Icon": 0,
+    "0x8": {
+      "Icon": "0x0",
       "CloSubPalettes": [
         {
-          "Ranges": [{ "Offset": 1920, "NumColors": 48 }],
-          "PaletteSet": 251658248
+          "Ranges": [
+            {
+              "Offset": "0x780",
+              "NumColors": "0x30"
+            }
+          ],
+          "PaletteSet": "F000008"
         },
         {
-          "Ranges": [{ "Offset": 1968, "NumColors": 80 }],
-          "PaletteSet": 251658783
+          "Ranges": [
+            {
+              "Offset": "0x7B0",
+              "NumColors": "0x50"
+            }
+          ],
+          "PaletteSet": "F00021F"
         }
       ]
     }

@@ -1,316 +1,457 @@
-﻿using ACE.DatLoader.FileTypes;
-using HarmonyLib;
-using JsonNet.ContractResolvers;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
-using System.IO;
+﻿using ACE.DatLoader.Entity;
+using ACE.DatLoader.FileTypes;
+using ACE.Entity;
+using ACE.Entity.Enum.Properties;
+using ACE.Server.Command.Handlers;
+using ACE.Server.Managers;
+using ACE.Server.Network;
+using ACE.Server.Network.GameEvent.Events;
+using ACE.Server.Network.GameMessages.Messages;
+using ACE.Server.WorldObjects;
+using ACE.Shared.Helpers;
+using System;
+using System.Diagnostics;
+using System.Text;
+using static ACE.Server.WorldObjects.Player;
 
-namespace CustomClothingBase
-{   
-    [HarmonyPatch]
-    public class PatchClass
+namespace CustomClothingBase;
+
+[HarmonyPatch]
+public partial class PatchClass
+{
+    #region Settings
+    const int RETRIES = 10;
+
+    public static Settings Settings = new();
+    static string settingsPath => Path.Combine(Mod.ModPath, "Settings.json");
+    private FileInfo settingsInfo = new(settingsPath);
+
+    private static JsonSerializerOptions _serializeOptions = new()
     {
-        #region Settings
-        const int RETRIES = 10;
+        WriteIndented = true,
+        AllowTrailingCommas = true,
+        Converters = {
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
+            //new HexIntConverter(),
+            //new HexUIntConverter(),
+            //new HexKeyDictionaryConverter<uint, ClothingBaseEffect>(),
+            //new HexKeyDictionaryConverter<uint, ClothingBaseEffectEx>(),
+            //new HexKeyDictionaryConverter<uint, CloSubPalEffect>(),
+            //new HexKeyDictionaryConverter<uint, CloSubPalEffectEx>(),
+            },
+        //TypeInfoResolver = new CustomTypeResolver(),
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
-        public static Settings Settings = new();
-        static string settingsPath => Path.Combine(Mod.ModPath, "Settings.json");
-        private FileInfo settingsInfo = new(settingsPath);
 
-        private JsonSerializerOptions _serializeOptions = new()
+    private void SaveSettings()
+    {
+        string jsonString = JsonSerializer.Serialize(Settings, _serializeOptions);
+
+        if (!settingsInfo.RetryWrite(jsonString, RETRIES))
         {
-            WriteIndented = true,
-            AllowTrailingCommas = true,
-            Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+            ModManager.Log($"Failed to save settings to {settingsPath}...", ModManager.LogLevel.Warn);
+            Mod.State = ModState.Error;
+        }
+    }
 
-        private void SaveSettings()
+    private void LoadSettings()
+    {
+        if (!settingsInfo.Exists)
         {
-            string jsonString = System.Text.Json.JsonSerializer.Serialize(Settings, _serializeOptions);
+            ModManager.Log($"Creating {settingsInfo}...");
+            SaveSettings();
+        }
+        else
+            ModManager.Log($"Loading settings from {settingsPath}...");
 
-            if (!settingsInfo.RetryWrite(jsonString, RETRIES))
-            {
-                ModManager.Log($"Failed to save settings to {settingsPath}...", ModManager.LogLevel.Warn);
-                Mod.State = ModState.Error;
-            }
+        if (!settingsInfo.RetryRead(out string jsonString, RETRIES))
+        {
+            Mod.State = ModState.Error;
+            return;
         }
 
-        private void LoadSettings()
+        try
         {
-            if (!settingsInfo.Exists)
-            {
-                ModManager.Log($"Creating {settingsInfo}...");
-                SaveSettings();
-            }
-            else
-                ModManager.Log($"Loading settings from {settingsPath}...");
-
-            if (!settingsInfo.RetryRead(out string jsonString, RETRIES))
-            {
-                Mod.State = ModState.Error;
-                return;
-            }
-
-            try
-            {
-                Settings = System.Text.Json.JsonSerializer.Deserialize<Settings>(jsonString, _serializeOptions);
-            }
-            catch (Exception)
-            {
-                ModManager.Log($"Failed to deserialize Settings: {settingsPath}", ModManager.LogLevel.Warn);
-                Mod.State = ModState.Error;
-                return;
-            }
+            Settings = JsonSerializer.Deserialize<Settings>(jsonString, _serializeOptions);
         }
-        #endregion
-
-        #region Start/Shutdown
-        public void Start()
+        catch (Exception)
         {
-            //Need to decide on async use
-            Mod.State = ModState.Loading;
-            LoadSettings();
+            ModManager.Log($"Failed to deserialize Settings: {settingsPath}", ModManager.LogLevel.Warn);
+            Mod.State = ModState.Error;
+            return;
+        }
+    }
+    #endregion
 
-            if (Mod.State == ModState.Error)
-            {
-                ModManager.DisableModByPath(Mod.ModPath);
-                return;
-            }
+    #region Start/Shutdown
+    public void Start()
+    {
+        //Need to decide on async use
+        Mod.State = ModState.Loading;
+        LoadSettings();
 
-            // Init our Serialize Settings
-            JsonConvert.DefaultSettings = () => new JsonSerializerSettings
-            {
-                Formatting = Formatting.Indented,
-                ContractResolver = new CamelCasePropertyNamesContractResolver(),
-            };
-
-            Mod.State = ModState.Running;
+        if (Mod.State == ModState.Error)
+        {
+            ModManager.DisableModByPath(Mod.ModPath);
+            return;
         }
 
-        public void Shutdown()
+        if (Settings.WatchContent)
         {
-            //if (Mod.State == ModState.Running)
-            // Shut down enabled mod...
-
-            //If the mod is making changes that need to be saved use this and only manually edit settings when the patch is not active.
-            //SaveSettings();
-
-            if (Mod.State == ModState.Error)
-                ModManager.Log($"Improper shutdown: {Mod.ModPath}", ModManager.LogLevel.Error);
-        }
-        #endregion
-
-        #region Patches
-
-        /// <summary>
-        /// ClothingTable.Unpack. We're going to go ahead and add our custom information into this.
-        /// </summary>
-        /// <param name="reader"></param>
-        /// <param name="__instance"></param>
-        /// 
-        [HarmonyPostfix]
-        [HarmonyPatch(typeof(ClothingTable), nameof(ClothingTable.Unpack), new Type[] { typeof(BinaryReader) })]
-        public static void PostUnpack(BinaryReader reader, ref ClothingTable __instance)
-        {
-            ClothingTable? cb = GetJsonClothing(__instance.Id);
-            if (cb != null){
-                __instance = MergeClothingTable(__instance, cb);
-            }
+            Directory.CreateDirectory(ContentDir);
+            _contentWatcher = new(ContentDir);
+            ModManager.Log($"Watching ClothingBase changes in:\n{ContentDir}");
         }
 
-        [HarmonyPrefix]
-        [HarmonyPatch(typeof(DatDatabase), nameof(DatDatabase.GetReaderForFile), new Type[] { typeof(uint) })]
-        public static bool PreGetReaderForFile(uint fileId, ref DatDatabase __instance, ref DatReader __result)
+        _serializeOptions.TypeInfoResolver = new CustomTypeResolver(Settings.HexKeys);
+
+        Mod.State = ModState.Running;
+    }
+
+    public void Shutdown()
+    {
+        _contentWatcher?.Dispose();
+
+        if (Settings.ClearCacheOnShutdown)
+            ClearClothingCache();
+
+        if (Mod.State == ModState.Error)
+            ModManager.Log($"Improper shutdown: {Mod.ModPath}", ModManager.LogLevel.Error);
+    }
+    #endregion
+
+    static JsonFileWatcher _contentWatcher;
+    static string ModDir => ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
+    static string StubDir => Path.Combine(ModDir, "stub");
+    static string ContentDir => Path.Combine(ModDir, "json");
+    public static string GetFilename(uint fileId) => Path.Combine(ContentDir, $"0x{fileId:X}.json");
+    public static bool JsonFileExists(uint fileId) => File.Exists(GetFilename(fileId));
+
+    #region Patches
+    /// <summary>
+    /// ClothingTable.Unpack. We're going to go ahead and add our custom information into this.
+    /// </summary>
+    /// <param name="reader"></param>
+    /// <param name="__instance"></param>
+    /// 
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(ClothingTable), nameof(ClothingTable.Unpack), new Type[] { typeof(BinaryReader) })]
+    public static void PostUnpack(BinaryReader reader, ref ClothingTable __instance)
+    {
+        ClothingTable? cb = GetJsonClothing(__instance.Id);
+        if (cb != null)
         {
-            // File already exists in the dat file -- proceed to let it run normally
-            if (__instance.AllFiles.ContainsKey(fileId))
-                return true;
-            else if(__instance.Header.DataSet == DatDatabaseType.Portal && fileId > 0x10000000 && fileId <= 0x10FFFFFF)
-            {
-                // We're trying to load a ClothingTable entry that does not exist in the Portal.dat. Does it exist as JSON?
-                if (JsonFileExists(fileId) && createStubClothingBase(fileId))
-                {
-                    string directory = ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
-                    string stubFilename = Path.Combine(directory, "stub", $"{fileId:X8}.bin");
+            __instance = MergeClothingTable(__instance, cb);
+        }
+    }
 
-                    // Load our stub into the DatReader
-                    __result = new DatReader(stubFilename, 0, 12, 16);
-
-                    // No need to run the original function -- we've cheated it with the result!
-                    return false;
-                }
-            }
-            //Return true to execute original
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(DatDatabase), nameof(DatDatabase.GetReaderForFile), new Type[] { typeof(uint) })]
+    public static bool PreGetReaderForFile(uint fileId, ref DatDatabase __instance, ref DatReader __result)
+    {
+        // File already exists in the dat file -- proceed to let it run normally
+        if (__instance.AllFiles.ContainsKey(fileId))
             return true;
-        }
-
-        private static bool createStubClothingBase(uint fileId)
+        else if (__instance.Header.DataSet == DatDatabaseType.Portal && fileId > 0x10000000 && fileId <= 0x10FFFFFF)
         {
-            string directory = ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
-            string stubDirectory = Path.Combine(directory, "stub");
-
-            // Create stub directory if it doesn't already exist
-            if (!Directory.Exists(stubDirectory))
-                Directory.CreateDirectory(stubDirectory);
-
-            string stubFilename = Path.Combine(stubDirectory, $"{fileId:X8}.bin");
-
-            // If this already exists, no need to recreate
-            if(File.Exists(stubFilename))
-                return true;
-
-            try
+            // We're trying to load a ClothingTable entry that does not exist in the Portal.dat. Does it exist as JSON?
+            if (JsonFileExists(fileId) && createStubClothingBase(fileId))
             {
-                using (FileStream fs = new FileStream(stubFilename, FileMode.Create))
-                {
-                    using (BinaryWriter writer = new BinaryWriter(fs))
-                    {
-                        writer.Write((int)0); // NextAddress, since this is a dat "block", this goes first
-                        writer.Write(fileId);
-                        writer.Write((int)0); // num ClothingBaseEffects
-                        writer.Write((int)0); // num ClothingSubPalEffects
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                ModManager.Log($"Error creating CustomClothingTable stub for {fileId}", ModManager.LogLevel.Error);
+                string directory = ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
+                string stubFilename = Path.Combine(directory, "stub", $"{fileId:X8}.bin");
+
+                // Load our stub into the DatReader
+                __result = new DatReader(stubFilename, 0, 12, 16);
+
+                // No need to run the original function -- we've cheated it with the result!
                 return false;
             }
-            
+        }
+        //Return true to execute original
+        return true;
+    }
+
+    private static bool createStubClothingBase(uint fileId)
+    {
+        // Create stub directory if it doesn't already exist       
+        Directory.CreateDirectory(StubDir);
+
+        string stubFilename = Path.Combine(StubDir, $"{fileId:X8}.bin");
+
+        // If this already exists, no need to recreate
+        if (File.Exists(stubFilename))
             return true;
-        }
 
-        private static string getFilename(uint fileId)
+        try
         {
-            string directory = ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
-            string jsonFilename = Path.Combine(directory, "json", $"{fileId:X8}.json");
-            return jsonFilename;
-        }
-        private static bool JsonFileExists(uint fileId)
-        {
-            if (File.Exists(getFilename(fileId)))
+            using (FileStream fs = new FileStream(stubFilename, FileMode.Create))
             {
-                return true;
+                using (System.IO.BinaryWriter writer = new(fs))
+                {
+                    writer.Write((int)0); // NextAddress, since this is a dat "block", this goes first
+                    writer.Write(fileId);
+                    writer.Write((int)0); // num ClothingBaseEffects
+                    writer.Write((int)0); // num ClothingSubPalEffects
+                }
             }
-
+        }
+        catch (Exception ex)
+        {
+            ModManager.Log($"Error creating CustomClothingTable stub for {fileId}", ModManager.LogLevel.Error);
             return false;
         }
-        
-        private static ClothingTable? GetJsonClothing(uint fileId) {
-            if (JsonFileExists(fileId)) {
-                string jsonString = File.ReadAllText(getFilename(fileId));
-                try
-                {
-                    var settings = new JsonSerializerSettings
-                    {
-                        ContractResolver = new PrivateSetterContractResolver()
-                    };
-                    var clothingTable = JsonConvert.DeserializeObject<ClothingTable>(jsonString, settings);
 
-                    return clothingTable;
-                }
-                catch (Exception E)
-                {
-                    ModManager.Log(E.GetFullMessage(), ModManager.LogLevel.Error);
+        return true;
+    }
+
+    private static ClothingTable? GetJsonClothing(uint fileId)
+    {
+        var fileName = GetFilename(fileId);
+        if (JsonFileExists(fileId))
+        {
+            try
+            {
+                //Add retries
+                FileInfo file = new(fileName);
+                if (!file.RetryRead(out var jsonString, 10))
                     return null;
-                }
+                //string jsonString = File.ReadAllText(fileName);
+                var clothingTable = JsonSerializer.Deserialize<ClothingTableEx>(jsonString, _serializeOptions).Convert();
+                return clothingTable;
             }
-            return null;
+            catch (Exception E)
+            {
+                ModManager.Log(E.GetFullMessage(), ModManager.LogLevel.Error);
+                return null;
+            }
         }
-        
-        /// <summary>
-        /// Inserts cb2 contents into cb. If a ClothingBaseEffect or ClothingSubPalEffects exists, it will overwrite it.
-        /// </summary>
-        /// <param name="cb"></param>
-        /// <param name="cb2"></param>
-        /// <returns></returns>
-        private static ClothingTable MergeClothingTable(ClothingTable cb, ClothingTable cb2)
-        {
-            foreach (var cbe in cb2.ClothingBaseEffects)
-            {
-                if (cb.ClothingBaseEffects.ContainsKey(cbe.Key))
-                    cb.ClothingBaseEffects[cbe.Key] = cbe.Value;
-                else
-                    cb.ClothingBaseEffects.Add(cbe.Key, cbe.Value);
-            }
-            foreach (var csp in cb2.ClothingSubPalEffects)
-            {
-                if (cb.ClothingSubPalEffects.ContainsKey(csp.Key))
-                    cb.ClothingSubPalEffects[csp.Key] = csp.Value;
-                else
-                    cb.ClothingSubPalEffects.Add(csp.Key, csp.Value);
-            }
-            return cb;
-        }
+        return null;
+    }
 
-        /// <summary>
-        /// Clears the DatManager.PortalDat.FileCache of all ClothingTable entries, allowing us to pull any new or updated custom data
-        /// </summary>
-        /// <param name="session"></param>
-        /// <param name="parameters"></param>
-        [CommandHandler("clear-clothing-cache", AccessLevel.Admin, CommandHandlerFlag.None, 0, "Clears the ClothingTable file cache.")]
-        public static void HandleClearConsoleCache(Session session, params string[] parameters)
+    /// <summary>
+    /// Inserts cb2 contents into cb. If a ClothingBaseEffect or ClothingSubPalEffects exists, it will overwrite it.
+    /// </summary>
+    /// <param name="cb"></param>
+    /// <param name="cb2"></param>
+    /// <returns></returns>
+    private static ClothingTable MergeClothingTable(ClothingTable cb, ClothingTable cb2)
+    {
+        foreach (var cbe in cb2.ClothingBaseEffects)
         {
-            uint count = 0;
-            foreach(var e in DatManager.PortalDat.FileCache)
-            {
-                if (e.Key > 0x10000000 && e.Key <= 0x10FFFFFF) 
-                {
-                    DatManager.PortalDat.FileCache.TryRemove(e);
-                    count++;
-                }
-            }
-            ModManager.Log($"Removed {count} ClothingTable entires from FileCache");
-        }
-
-        /// <summary>
-        /// Exports a ClothingBase entry to a JSON file
-        /// </summary>
-        /// <param name="session"></param>
-        /// <param name="parameters"></param>
-        [CommandHandler("clothingbase-export", AccessLevel.Admin, CommandHandlerFlag.None, 1, "Exports a ClothingBase entry to a JSON file in the CustomClothingBase mod folder.")]
-        public static void HandleExportClothing(Session session, params string[] parameters)
-        {
-            string syntax = "clothingbase-export <id>";
-            if (parameters == null || parameters?.Length < 1)
-            {
-                ModManager.Log(syntax);
-                return;
-            }
-
-            uint clothingBaseId;
-            if (parameters[0].StartsWith("0x"))
-            {
-                string hex = parameters[0].Substring(2);
-                if (!uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.CurrentCulture, out clothingBaseId))
-                {
-                    ModManager.Log(syntax);
-                    return;
-                }
-            }
+            if (cb.ClothingBaseEffects.ContainsKey(cbe.Key))
+                cb.ClothingBaseEffects[cbe.Key] = cbe.Value;
             else
-            if (!uint.TryParse(parameters[0], out clothingBaseId))
+                cb.ClothingBaseEffects.Add(cbe.Key, cbe.Value);
+        }
+        foreach (var csp in cb2.ClothingSubPalEffects)
+        {
+            if (cb.ClothingSubPalEffects.ContainsKey(csp.Key))
+                cb.ClothingSubPalEffects[csp.Key] = csp.Value;
+            else
+                cb.ClothingSubPalEffects.Add(csp.Key, csp.Value);
+        }
+        return cb;
+    }
+
+    /// <summary>
+    /// Clears the DatManager.PortalDat.FileCache of all ClothingTable entries, allowing us to pull any new or updated custom data
+    /// </summary>
+    /// <param name="session"></param>
+    /// <param name="parameters"></param>
+    [CommandHandler("clear-clothing-cache", AccessLevel.Admin, CommandHandlerFlag.None, 0, "Clears the ClothingTable file cache.")]
+    public static void HandleClearConsoleCache(Session session, params string[] parameters)
+    {
+        ClearClothingCache();
+    }
+
+    /// <summary>
+    /// Exports a ClothingBase entry to a JSON file
+    /// </summary>
+    /// <param name="session"></param>
+    /// <param name="parameters"></param>
+    [CommandHandler("clothingbase-export", AccessLevel.Admin, CommandHandlerFlag.None, 1, "Exports a ClothingBase entry to a JSON file in the CustomClothingBase mod folder.")]
+    public static void HandleExportClothing(Session session, params string[] parameters)
+    {
+        string syntax = "clothingbase-export <id>";
+        if (parameters == null || parameters?.Length < 1)
+        {
+            ModManager.Log(syntax);
+            return;
+        }
+
+        uint clothingBaseId;
+        if (parameters[0].StartsWith("0x"))
+        {
+            string hex = parameters[0].Substring(2);
+            if (!uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.CurrentCulture, out clothingBaseId))
             {
                 ModManager.Log(syntax);
                 return;
             }
+        }
+        else
+        if (!uint.TryParse(parameters[0], out clothingBaseId))
+        {
+            ModManager.Log(syntax);
+            return;
+        }
 
-            string exportFilename = getFilename(clothingBaseId);
-            var cbToExport = DatManager.PortalDat.ReadFromDat<ClothingTable>(clothingBaseId);
+        ExportClothingBase(clothingBaseId);
+    }
 
-            // make sure the mod/json folder exists -- if not, create it
-            string path = Path.GetDirectoryName(exportFilename);
-            if (!Directory.Exists(path))
-                Directory.CreateDirectory(path);
-            
-            var json = JsonConvert.SerializeObject(cbToExport);
+    [CommandHandler("export-clothing", AccessLevel.Admin, CommandHandlerFlag.RequiresWorld, 0, "Exports ClothingBase entry to a JSON file in the CustomClothingBase mod folder.")]
+    public static void HandleExportWeenieClothing(Session session, params string[] parameters)
+    {
+        if (session?.Player is not Player player)
+            return;
 
+        //Selected object approach from /delete
+        var objectId = ObjectGuid.Invalid;
+
+        if (session.Player.HealthQueryTarget.HasValue)
+            objectId = new ObjectGuid(session.Player.HealthQueryTarget.Value);
+        else if (session.Player.ManaQueryTarget.HasValue)
+            objectId = new ObjectGuid(session.Player.ManaQueryTarget.Value);
+        else if (session.Player.CurrentAppraisalTarget.HasValue)
+            objectId = new ObjectGuid(session.Player.CurrentAppraisalTarget.Value);
+
+        if (objectId == ObjectGuid.Invalid)
+            ChatPacket.SendServerMessage(session, "Delete failed. Please identify the object you wish to delete first.", ChatMessageType.Broadcast);
+
+        var wo = session.Player.FindObject(objectId.Full, Player.SearchLocations.Everywhere, out _, out Container rootOwner, out bool wasEquipped);
+        if (wo is null)
+        {
+            player.SendMessage($"No object is selected.");
+            return;
+        }
+
+        if (wo.ClothingBase is null)
+        {
+            player.SendMessage($"No ClothingBase found for {wo.Name}");
+            return;
+        }
+
+        ExportClothingBase(wo.ClothingBase.Value);
+        player.SendMessage($"Exported ClothingBase {wo.ClothingBase:X} for {wo.Name} to:\n{GetFilename(wo.ClothingBase.Value)}");
+    }
+    #endregion
+
+    private static void ExportClothingBase(uint clothingBaseId)
+    {
+        //DatManager.PortalDat.ReadFromDat<Palet>
+        string exportFilename = GetFilename(clothingBaseId);
+        var cbToExport = DatManager.PortalDat.ReadFromDat<ClothingTable>(clothingBaseId);
+
+        // make sure the mod/json folder exists -- if not, create it
+        string path = Path.GetDirectoryName(exportFilename);
+        Directory.CreateDirectory(path);
+
+        try
+        {
+            var json = JsonSerializer.Serialize(cbToExport, _serializeOptions);
             File.WriteAllText(exportFilename, json);
             ModManager.Log($"Saved to {exportFilename}");
         }
-        #endregion
+        catch (Exception E)
+        {
+            ModManager.Log(E.GetFullMessage(), ModManager.LogLevel.Error);
+        }
     }
 
+    public static void ClearClothingCache()
+    {
+        uint count = 0;
+        foreach (var e in DatManager.PortalDat.FileCache)
+        {
+            if (e.Key > 0x10000000 && e.Key <= 0x10FFFFFF)
+            {
+                DatManager.PortalDat.FileCache.TryRemove(e);
+                count++;
+            }
+        }
+
+        if (PlayerManager.GetAllOnline().FirstOrDefault() is not Player player)
+            return;
+
+        //var wos = player.EquippedObjects.Values.ToList();
+        player.EnqueueBroadcast(new GameMessageObjDescEvent(player));
+
+        //foreach (var wo in wos)
+        //{
+        //    //player.Session.Network.EnqueueSend(
+        //    //    new GameMessageObjDescEvent(wo),
+        //    //    new GameMessagePublicUpdateInstanceID(wo, PropertyInstanceId.Wielder, ObjectGuid.Invalid),
+        //    //    new GameMessagePublicUpdatePropertyInt(wo, PropertyInt.CurrentWieldedLocation, 0)
+        //    //    , new GameEventWieldItem(player.Session, wo.Guid.Full, wo.CurrentWieldedLocation.Value)
+        //    //);
+
+        //    //player.EnqueueActionBroadcast(p => p.TrackEquippedObject(player, wo));
+        //    //player.TryDequipObjectWithNetworking(wo.Guid, out var woOut, Player.DequipObjectAction.DequipToPack);
+        //}
+        //foreach (var wo in wos)
+        //    player.TryEquipObjectWithNetworking(wo, wo.ValidLocations.Value);
+
+        ModManager.Log($"Removed {count} ClothingTable entires from FileCache");
+    }
+
+
+
+    [CommandHandler("sp", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 0, "Exports ClothingBase entry to a JSON file in the CustomClothingBase mod folder.")]
+    public static void HandleDie(Session session, params string[] parameters)
+    {
+        if (session?.Player is not Player player || !player.TryGetCurrentSelection(out var wo))
+            return;
+
+        DeveloperCommands.HandleSetProperty(session, parameters);
+        //var randomPalette = Enum.GetValues<PaletteTemplate>().GetRandom();
+
+        //wo.PaletteTemplate = (int)randomPalette;
+
+        ////Repaint object if worn?  Requires updating player, not just item I think
+        //if (wo.CurrentWieldedLocation != null)
+        //    player.EnqueueBroadcast(new GameMessageObjDescEvent(player));
+    }
+
+}
+
+public static class SelectionExtensions
+{
+    public static bool TryGetCurrentSelection(this Player player, out WorldObject wo, SearchLocations locations = SearchLocations.Everywhere)
+    {
+        wo = null;
+
+        if (player is null)
+            return false;
+
+        //Try to find selected object ID
+        var objectId = ObjectGuid.Invalid;
+        if (player.HealthQueryTarget.HasValue)
+            objectId = new ObjectGuid(player.HealthQueryTarget.Value);
+        else if (player.ManaQueryTarget.HasValue)
+            objectId = new ObjectGuid(player.ManaQueryTarget.Value);
+        else if (player.CurrentAppraisalTarget.HasValue)
+            objectId = new ObjectGuid(player.CurrentAppraisalTarget.Value);
+
+        if (objectId == ObjectGuid.Invalid)
+            return false;
+
+#if REALM
+        wo = player.FindObject(objectId, locations);
+#else
+        wo = player.FindObject(objectId.Full, locations);
+#endif
+
+        return wo is not null;
+    }
+
+    public static ClothingTable Clone(this ClothingTable ct)
+    {
+        var json = JsonSerializer.Serialize(ct);
+        var cte = JsonSerializer.Deserialize<ClothingTableEx>(json);
+        var newCt = cte.Convert();
+        Debugger.Break();
+        return newCt;
+    }
+    //=> JsonSerializer.Deserialize<ClothingTableEx>(JsonSerializer.Serialize(ct)).Convert();
 }
