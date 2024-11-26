@@ -1,13 +1,5 @@
-﻿using ACE.DatLoader;
-using ACE.DatLoader.Entity;
+﻿using ACE.DatLoader.Entity;
 using ACE.DatLoader.FileTypes;
-using ACE.Server.Entity;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 
 //ClothingTable
 //  ClothingBaseEffectEx (Dic)

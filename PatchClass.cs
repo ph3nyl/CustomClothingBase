@@ -1,17 +1,10 @@
 ﻿using ACE.DatLoader.Entity;
 using ACE.DatLoader.FileTypes;
 using ACE.Entity;
-using ACE.Entity.Enum.Properties;
-using ACE.Server.Command.Handlers;
 using ACE.Server.Managers;
 using ACE.Server.Network;
-using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.WorldObjects;
-using ACE.Shared.Helpers;
-using System;
-using System.Diagnostics;
-using System.Text;
 using static ACE.Server.WorldObjects.Player;
 
 namespace CustomClothingBase;
@@ -43,6 +36,7 @@ public partial class PatchClass
             new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
             //More involved to handle Dictionary
             new HexKeyDictionaryConverter<uint, ClothingBaseEffect>(),
+            new HexKeyDictionaryConverter<uint, ClothingBaseEffectEx>(),
             },
         TypeInfoResolver = new HexTypeResolver(hexKeys),
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,

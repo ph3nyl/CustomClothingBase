@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace CustomClothingBase;
+﻿namespace CustomClothingBase;
 
 public class JsonFileWatcher
 {
