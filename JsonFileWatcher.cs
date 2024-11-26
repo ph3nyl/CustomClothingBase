@@ -8,6 +8,7 @@ public class JsonFileWatcher
 
     public JsonFileWatcher(string directoryToWatch)
     {
+        Directory.CreateDirectory(directoryToWatch);
         _contentWatcher = new FileSystemWatcher
         {
             Path = directoryToWatch,
@@ -20,17 +21,7 @@ public class JsonFileWatcher
     }
 
     private void OnFileChanged(object sender, FileSystemEventArgs e)
-    {
-        PatchClass.ClearClothingCache();
-        //var name = Path.GetFileNameWithoutExtension(e.FullPath);
-        //if (!uint.TryParse(name.Substring(2), out var id))
-        //    return;
-
-        //if (id > 0x10000000 && id <= 0x10FFFFFF && DatManager.PortalDat.FileCache.TryRemove(id, out var value))
-        //    ModManager.Log($"Cleared {id}");
-        //else
-        //    ModManager.Log($"Nothing to clear {id}");
-    }
+        => PatchClass.ClearClothingCache();
 
     public void Dispose() => _contentWatcher.Dispose();
 }

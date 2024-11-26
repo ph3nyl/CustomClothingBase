@@ -26,23 +26,27 @@ public partial class PatchClass
     static string settingsPath => Path.Combine(Mod.ModPath, "Settings.json");
     private FileInfo settingsInfo = new(settingsPath);
 
+    static HashSet<string> hexKeys = new()
+    {
+        "ClothingBaseEffects",
+        "PaletteSet",
+        "ModelId",
+        "Id",
+    };
+
     private static JsonSerializerOptions _serializeOptions = new()
     {
         WriteIndented = true,
         AllowTrailingCommas = true,
         Converters = {
             new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
-            //new HexIntConverter(),
-            //new HexUIntConverter(),
-            //new HexKeyDictionaryConverter<uint, ClothingBaseEffect>(),
+            //More involved to handle Dictionary
             //new HexKeyDictionaryConverter<uint, ClothingBaseEffectEx>(),
-            //new HexKeyDictionaryConverter<uint, CloSubPalEffect>(),
-            //new HexKeyDictionaryConverter<uint, CloSubPalEffectEx>(),
+            new HexKeyDictionaryConverter<uint, ClothingBaseEffect>(),
             },
-        //TypeInfoResolver = new CustomTypeResolver(),
+        TypeInfoResolver = new CustomTypeResolver(hexKeys),
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
-
 
     private void SaveSettings()
     {
@@ -103,8 +107,6 @@ public partial class PatchClass
             _contentWatcher = new(ContentDir);
             ModManager.Log($"Watching ClothingBase changes in:\n{ContentDir}");
         }
-
-        _serializeOptions.TypeInfoResolver = new CustomTypeResolver(Settings.HexKeys);
 
         Mod.State = ModState.Running;
     }
@@ -394,25 +396,6 @@ public partial class PatchClass
 
         ModManager.Log($"Removed {count} ClothingTable entires from FileCache");
     }
-
-
-
-    [CommandHandler("sp", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 0, "Exports ClothingBase entry to a JSON file in the CustomClothingBase mod folder.")]
-    public static void HandleDie(Session session, params string[] parameters)
-    {
-        if (session?.Player is not Player player || !player.TryGetCurrentSelection(out var wo))
-            return;
-
-        DeveloperCommands.HandleSetProperty(session, parameters);
-        //var randomPalette = Enum.GetValues<PaletteTemplate>().GetRandom();
-
-        //wo.PaletteTemplate = (int)randomPalette;
-
-        ////Repaint object if worn?  Requires updating player, not just item I think
-        //if (wo.CurrentWieldedLocation != null)
-        //    player.EnqueueBroadcast(new GameMessageObjDescEvent(player));
-    }
-
 }
 
 public static class SelectionExtensions
@@ -453,5 +436,4 @@ public static class SelectionExtensions
         Debugger.Break();
         return newCt;
     }
-    //=> JsonSerializer.Deserialize<ClothingTableEx>(JsonSerializer.Serialize(ct)).Convert();
 }
