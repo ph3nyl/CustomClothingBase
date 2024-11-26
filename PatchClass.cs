@@ -376,23 +376,7 @@ public partial class PatchClass
         if (PlayerManager.GetAllOnline().FirstOrDefault() is not Player player)
             return;
 
-        //var wos = player.EquippedObjects.Values.ToList();
         player.EnqueueBroadcast(new GameMessageObjDescEvent(player));
-
-        //foreach (var wo in wos)
-        //{
-        //    //player.Session.Network.EnqueueSend(
-        //    //    new GameMessageObjDescEvent(wo),
-        //    //    new GameMessagePublicUpdateInstanceID(wo, PropertyInstanceId.Wielder, ObjectGuid.Invalid),
-        //    //    new GameMessagePublicUpdatePropertyInt(wo, PropertyInt.CurrentWieldedLocation, 0)
-        //    //    , new GameEventWieldItem(player.Session, wo.Guid.Full, wo.CurrentWieldedLocation.Value)
-        //    //);
-
-        //    //player.EnqueueActionBroadcast(p => p.TrackEquippedObject(player, wo));
-        //    //player.TryDequipObjectWithNetworking(wo.Guid, out var woOut, Player.DequipObjectAction.DequipToPack);
-        //}
-        //foreach (var wo in wos)
-        //    player.TryEquipObjectWithNetworking(wo, wo.ValidLocations.Value);
 
         ModManager.Log($"Removed {count} ClothingTable entires from FileCache");
     }
@@ -426,14 +410,5 @@ public static class SelectionExtensions
 #endif
 
         return wo is not null;
-    }
-
-    public static ClothingTable Clone(this ClothingTable ct)
-    {
-        var json = JsonSerializer.Serialize(ct);
-        var cte = JsonSerializer.Deserialize<ClothingTableEx>(json);
-        var newCt = cte.Convert();
-        Debugger.Break();
-        return newCt;
     }
 }
