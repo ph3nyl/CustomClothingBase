@@ -26,6 +26,7 @@ public partial class PatchClass
     static string settingsPath => Path.Combine(Mod.ModPath, "Settings.json");
     private FileInfo settingsInfo = new(settingsPath);
 
+    //Property key names that will be serialized as hex strings
     static HashSet<string> hexKeys = new()
     {
         "ClothingBaseEffects",
@@ -41,10 +42,9 @@ public partial class PatchClass
         Converters = {
             new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
             //More involved to handle Dictionary
-            //new HexKeyDictionaryConverter<uint, ClothingBaseEffectEx>(),
             new HexKeyDictionaryConverter<uint, ClothingBaseEffect>(),
             },
-        TypeInfoResolver = new CustomTypeResolver(hexKeys),
+        TypeInfoResolver = new HexTypeResolver(hexKeys),
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 

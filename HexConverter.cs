@@ -94,7 +94,7 @@ public static class HexExtensions
             T.TryParse(hexString, NumberStyles.HexNumber, null, out result);
 }
 
-public class CustomTypeResolver(HashSet<string> Keys) : DefaultJsonTypeInfoResolver
+public class HexTypeResolver(HashSet<string> Keys) : DefaultJsonTypeInfoResolver
 {
     public HashSet<string> Keys { get; set; } = Keys;
     HexConverter<uint> uintConverter = new();
