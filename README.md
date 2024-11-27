@@ -30,6 +30,7 @@ This will force the ClothingTable to reload; useful to allow you to make changes
 
 * `WatchContent` will monitor changes to files in the `/json/` folder.  When there are changes it clears the cache and requests the first online player redraws their model.
 * `ClearCacheOnShutdown` clears the cache when the mod is disposed.
+* `HexKeys` determines which properties will use a hex string.
 
 ## Examples
 
