@@ -5,95 +5,47 @@ using ACE.Server.Managers;
 using ACE.Server.Network;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.WorldObjects;
+using ACE.Shared.Mods;
+using System.Diagnostics;
 using static ACE.Server.WorldObjects.Player;
 
 namespace CustomClothingBase;
 
 [HarmonyPatch]
-public partial class PatchClass
+public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : BasicPatch<Settings>(mod, settingsName)
 {
-    #region Settings
-    const int RETRIES = 10;
+    private static JsonSerializerOptions _jsonSettings;
 
-    public static Settings Settings = new();
-    static string settingsPath => Path.Combine(Mod.ModPath, "Settings.json");
-    private FileInfo settingsInfo = new(settingsPath);
+    static JsonFileWatcher _contentWatcher;
+    static string ModDir => ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
+    static string StubDir => Path.Combine(ModDir, "stub");
+    static string ContentDir => Path.Combine(ModDir, "json");
+    public static string GetFilename(uint fileId) => Path.Combine(ContentDir, $"0x{fileId:X}.json");
+    public static bool JsonFileExists(uint fileId) => File.Exists(GetFilename(fileId));
 
-    //Property key names that will be serialized as hex strings
-    static HashSet<string> hexKeys = new()
+    public override Task OnWorldOpen()
     {
-        "ClothingBaseEffects",
-        "PaletteSet",
-        "ModelId",
-        "Id",
-    };
+        Settings = SettingsContainer.Settings;
 
-    private static JsonSerializerOptions _serializeOptions = new()
-    {
-        WriteIndented = true,
-        AllowTrailingCommas = true,
-        Converters = {
-            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
-            //More involved to handle Dictionary
-            new HexKeyDictionaryConverter<uint, ClothingBaseEffect>(),
-            new HexKeyDictionaryConverter<uint, ClothingBaseEffectEx>(),
-            },
-        TypeInfoResolver = new HexTypeResolver(hexKeys),
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
-    private void SaveSettings()
-    {
-        string jsonString = JsonSerializer.Serialize(Settings, _serializeOptions);
-
-        if (!settingsInfo.RetryWrite(jsonString, RETRIES))
+        _jsonSettings = new()
         {
-            ModManager.Log($"Failed to save settings to {settingsPath}...", ModManager.LogLevel.Warn);
-            Mod.State = ModState.Error;
-        }
-    }
+            WriteIndented = true,
+            AllowTrailingCommas = true,
+            Converters = {  },
+            TypeInfoResolver = new HexTypeResolver(Settings.HexKeys),
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        };
 
-    private void LoadSettings()
-    {
-        if (!settingsInfo.Exists)
-        {
-            ModManager.Log($"Creating {settingsInfo}...");
-            SaveSettings();
-        }
-        else
-            ModManager.Log($"Loading settings from {settingsPath}...");
-
-        if (!settingsInfo.RetryRead(out string jsonString, RETRIES))
-        {
-            Mod.State = ModState.Error;
-            return;
+        //Dictionaries messier to handle
+        List<JsonConverter> converters = new();
+        if (Settings.HexKeys.Contains(nameof(ClothingBaseEffect))) {
+            converters.Add(new HexKeyDictionaryConverter<uint, ClothingBaseEffect>());
+            converters.Add(new HexKeyDictionaryConverter<uint, ClothingBaseEffectEx>());
         }
 
-        try
-        {
-            Settings = JsonSerializer.Deserialize<Settings>(jsonString, _serializeOptions);
-        }
-        catch (Exception)
-        {
-            ModManager.Log($"Failed to deserialize Settings: {settingsPath}", ModManager.LogLevel.Warn);
-            Mod.State = ModState.Error;
-            return;
-        }
-    }
-    #endregion
+        foreach (var converter in converters)
+            _jsonSettings.Converters.Add(converter);
 
-    #region Start/Shutdown
-    public void Start()
-    {
-        //Need to decide on async use
-        Mod.State = ModState.Loading;
-        LoadSettings();
-
-        if (Mod.State == ModState.Error)
-        {
-            ModManager.DisableModByPath(Mod.ModPath);
-            return;
-        }
 
         if (Settings.WatchContent)
         {
@@ -102,27 +54,18 @@ public partial class PatchClass
             ModManager.Log($"Watching ClothingBase changes in:\n{ContentDir}");
         }
 
-        Mod.State = ModState.Running;
+        return base.OnWorldOpen();
     }
 
-    public void Shutdown()
+    public override void Stop()
     {
         _contentWatcher?.Dispose();
 
         if (Settings.ClearCacheOnShutdown)
             ClearClothingCache();
 
-        if (Mod.State == ModState.Error)
-            ModManager.Log($"Improper shutdown: {Mod.ModPath}", ModManager.LogLevel.Error);
+        base.Stop();
     }
-    #endregion
-
-    static JsonFileWatcher _contentWatcher;
-    static string ModDir => ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
-    static string StubDir => Path.Combine(ModDir, "stub");
-    static string ContentDir => Path.Combine(ModDir, "json");
-    public static string GetFilename(uint fileId) => Path.Combine(ContentDir, $"0x{fileId:X}.json");
-    public static bool JsonFileExists(uint fileId) => File.Exists(GetFilename(fileId));
 
     #region Patches
     /// <summary>
@@ -166,63 +109,6 @@ public partial class PatchClass
         }
         //Return true to execute original
         return true;
-    }
-
-    private static bool createStubClothingBase(uint fileId)
-    {
-        // Create stub directory if it doesn't already exist       
-        Directory.CreateDirectory(StubDir);
-
-        string stubFilename = Path.Combine(StubDir, $"{fileId:X8}.bin");
-
-        // If this already exists, no need to recreate
-        if (File.Exists(stubFilename))
-            return true;
-
-        try
-        {
-            using (FileStream fs = new FileStream(stubFilename, FileMode.Create))
-            {
-                using (System.IO.BinaryWriter writer = new(fs))
-                {
-                    writer.Write((int)0); // NextAddress, since this is a dat "block", this goes first
-                    writer.Write(fileId);
-                    writer.Write((int)0); // num ClothingBaseEffects
-                    writer.Write((int)0); // num ClothingSubPalEffects
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            ModManager.Log($"Error creating CustomClothingTable stub for {fileId}", ModManager.LogLevel.Error);
-            return false;
-        }
-
-        return true;
-    }
-
-    private static ClothingTable? GetJsonClothing(uint fileId)
-    {
-        var fileName = GetFilename(fileId);
-        if (JsonFileExists(fileId))
-        {
-            try
-            {
-                //Add retries
-                FileInfo file = new(fileName);
-                if (!file.RetryRead(out var jsonString, 10))
-                    return null;
-                //string jsonString = File.ReadAllText(fileName);
-                var clothingTable = JsonSerializer.Deserialize<ClothingTableEx>(jsonString, _serializeOptions).Convert();
-                return clothingTable;
-            }
-            catch (Exception E)
-            {
-                ModManager.Log(E.GetFullMessage(), ModManager.LogLevel.Error);
-                return null;
-            }
-        }
-        return null;
     }
 
     /// <summary>
@@ -333,6 +219,63 @@ public partial class PatchClass
     }
     #endregion
 
+    private static bool createStubClothingBase(uint fileId)
+    {
+        // Create stub directory if it doesn't already exist       
+        Directory.CreateDirectory(StubDir);
+
+        string stubFilename = Path.Combine(StubDir, $"{fileId:X8}.bin");
+
+        // If this already exists, no need to recreate
+        if (File.Exists(stubFilename))
+            return true;
+
+        try
+        {
+            using (FileStream fs = new FileStream(stubFilename, FileMode.Create))
+            {
+                using (System.IO.BinaryWriter writer = new(fs))
+                {
+                    writer.Write((int)0); // NextAddress, since this is a dat "block", this goes first
+                    writer.Write(fileId);
+                    writer.Write((int)0); // num ClothingBaseEffects
+                    writer.Write((int)0); // num ClothingSubPalEffects
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            ModManager.Log($"Error creating CustomClothingTable stub for {fileId}", ModManager.LogLevel.Error);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static ClothingTable? GetJsonClothing(uint fileId)
+    {
+        var fileName = GetFilename(fileId);
+        if (JsonFileExists(fileId))
+        {
+            try
+            {
+                //Add retries
+                FileInfo file = new(fileName);
+                if (!file.RetryRead(out var jsonString, 10))
+                    return null;
+                //string jsonString = File.ReadAllText(fileName);
+                var clothingTable = JsonSerializer.Deserialize<ClothingTableEx>(jsonString, _jsonSettings).Convert();
+                return clothingTable;
+            }
+            catch (Exception E)
+            {
+                ModManager.Log(E.GetFullMessage(), ModManager.LogLevel.Error);
+                return null;
+            }
+        }
+        return null;
+    }
+
     private static void ExportClothingBase(uint clothingBaseId)
     {
         //DatManager.PortalDat.ReadFromDat<Palet>
@@ -345,7 +288,7 @@ public partial class PatchClass
 
         try
         {
-            var json = JsonSerializer.Serialize(cbToExport, _serializeOptions);
+            var json = JsonSerializer.Serialize(cbToExport, _jsonSettings);
             File.WriteAllText(exportFilename, json);
             ModManager.Log($"Saved to {exportFilename}");
         }
