@@ -17,12 +17,15 @@ using ACE.DatLoader.FileTypes;
 //              NumColors
 public class ClothingTableEx : ClothingTable
 {
-    public Dictionary<uint, ClothingBaseEffectEx> ClothingBaseEffects { get; set; } = new();
-    public Dictionary<uint, CloSubPalEffectEx> ClothingSubPalEffects { get; set; } = new();
+    public new Dictionary<uint, ClothingBaseEffectEx> ClothingBaseEffects { get; set; } = new();
+    public new Dictionary<uint, CloSubPalEffectEx> ClothingSubPalEffects { get; set; } = new();
+    public new uint Id { get; set; }
 
     public ClothingTable Convert()
     {
         ClothingTable value = new();
+        value.Id = Id;
+
         foreach (var cbe in ClothingBaseEffects)
             value.ClothingBaseEffects.Add( cbe.Key, cbe.Value.Convert());
 
@@ -36,7 +39,7 @@ public class ClothingTableEx : ClothingTable
 public class CloSubPalEffectEx : CloSubPalEffect
 {
     public uint Icon { get; set; }
-    public List<CloSubPaletteEx> CloSubPalettes { get; set; } = new();
+    public new List<CloSubPaletteEx> CloSubPalettes { get; set; } = new();
 
     public CloSubPalEffect Convert()
     {
@@ -49,8 +52,8 @@ public class CloSubPalEffectEx : CloSubPalEffect
 
 public class CloSubPaletteEx : CloSubPalette
 {
-    public List<CloSubPaletteRange> Ranges { get; set; } = new();
-    public uint PaletteSet { get; set; }
+    public new List<CloSubPaletteRange> Ranges { get; set; } = new();
+    public new uint PaletteSet { get; set; }
 
     public CloSubPalette Convert()
     {
@@ -63,7 +66,7 @@ public class CloSubPaletteEx : CloSubPalette
 
 public class ClothingBaseEffectEx : ClothingBaseEffect
 {
-    public List<CloObjectEffectExt> CloObjectEffects { get; set; } = new();
+    public new List<CloObjectEffectExt> CloObjectEffects { get; set; } = new();
 
     public ClothingBaseEffect Convert()
     {
@@ -76,9 +79,9 @@ public class ClothingBaseEffectEx : ClothingBaseEffect
 
 public class CloObjectEffectExt : CloObjectEffect
 {
-    public uint Index { get; set; }
-    public uint ModelId { get; set; }
-    public List<CloTextureEffectEx> CloTextureEffects { get; set; } = new();
+    public new uint Index { get; set; }
+    public new uint ModelId { get; set; }
+    public new List<CloTextureEffectEx> CloTextureEffects { get; set; } = new();
 
     public CloObjectEffect Convert()
     {

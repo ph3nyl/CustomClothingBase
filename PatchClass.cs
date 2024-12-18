@@ -7,6 +7,7 @@ using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.WorldObjects;
 using ACE.Shared.Mods;
 using System.Diagnostics;
+using System.Text;
 using static ACE.Server.WorldObjects.Player;
 
 namespace CustomClothingBase;
@@ -20,7 +21,7 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
     static string ModDir => ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
     static string StubDir => Path.Combine(ModDir, "stub");
     static string ContentDir => Path.Combine(ModDir, "json");
-    public static string GetFilename(uint fileId) => Path.Combine(ContentDir, $"0x{fileId:X}.json");
+    public static string GetFilename(uint fileId) => Path.Combine(ContentDir, $"{fileId:X}.json");
     public static bool JsonFileExists(uint fileId) => File.Exists(GetFilename(fileId));
 
     public override Task OnWorldOpen()
@@ -31,14 +32,15 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
         {
             WriteIndented = true,
             AllowTrailingCommas = true,
-            Converters = {  },
+            Converters = { },
             TypeInfoResolver = new HexTypeResolver(Settings.HexKeys),
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
 
         //Dictionaries messier to handle
         List<JsonConverter> converters = new();
-        if (Settings.HexKeys.Contains(nameof(ClothingBaseEffect))) {
+        if (Settings.HexKeys.Contains(nameof(ClothingBaseEffect)))
+        {
             converters.Add(new HexKeyDictionaryConverter<uint, ClothingBaseEffect>());
             converters.Add(new HexKeyDictionaryConverter<uint, ClothingBaseEffectEx>());
         }
@@ -215,7 +217,37 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
         }
 
         ExportClothingBase(wo.ClothingBase.Value);
+
         player.SendMessage($"Exported ClothingBase {wo.ClothingBase:X} for {wo.Name} to:\n{GetFilename(wo.ClothingBase.Value)}");
+    }
+
+    [CommandHandler("convert-clothing", AccessLevel.Admin, CommandHandlerFlag.None, 0, "Attempts to convert all custom clothing content to the serializer in the settings.")]
+    public static void ConvertClothing(Session session, params string[] parameters)
+    {
+        var conversionDir = Path.Combine(ContentDir, "converted");
+        Directory.CreateDirectory(conversionDir);
+
+        StringBuilder sb = new("Conversion to current JSON format:");
+        foreach (var file in Directory.GetFiles(ContentDir, "*.json"))
+        {
+            FileInfo fi = new(file);
+            if (!fi.RetryRead(out var json))
+                continue;
+
+            try
+            {
+                var content = JsonSerializer.Deserialize<ClothingTableEx>(json);
+                var converted = JsonSerializer.Serialize<ClothingTableEx>(content, _jsonSettings);
+                var outpath = Path.Combine(conversionDir, fi.Name);
+                File.WriteAllText(outpath, converted);
+                sb.Append($"\nConverted {fi.Name}");
+            }
+            catch (Exception ex)
+            {
+                sb.Append($"\nFailed to convert {fi.Name}:\n{ex.GetFullMessage()}");
+            }
+        }
+        ModManager.Log(sb.ToString());
     }
     #endregion
 
@@ -263,8 +295,9 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
                 FileInfo file = new(fileName);
                 if (!file.RetryRead(out var jsonString, 10))
                     return null;
-                //string jsonString = File.ReadAllText(fileName);
-                var clothingTable = JsonSerializer.Deserialize<ClothingTableEx>(jsonString, _jsonSettings).Convert();
+
+                var ctx = JsonSerializer.Deserialize<ClothingTableEx>(jsonString, _jsonSettings);
+                var clothingTable = ctx.Convert();
                 return clothingTable;
             }
             catch (Exception E)
@@ -276,11 +309,13 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
         return null;
     }
 
-    private static void ExportClothingBase(uint clothingBaseId)
+    private static void ExportClothingBase(uint clothingBaseId, bool replace = false)
     {
-        //DatManager.PortalDat.ReadFromDat<Palet>
         string exportFilename = GetFilename(clothingBaseId);
         var cbToExport = DatManager.PortalDat.ReadFromDat<ClothingTable>(clothingBaseId);
+
+        if (File.Exists(exportFilename) && !replace)
+            exportFilename += ".export";
 
         // make sure the mod/json folder exists -- if not, create it
         string path = Path.GetDirectoryName(exportFilename);
