@@ -24,8 +24,6 @@ This will force the ClothingTable to reload; useful to allow you to make changes
 
 > `@export-clothing` - *Exports the ClothingBase of an Admin character's currently selected WorldObject if available*
 
-> 
-
 > `@convert-clothing` - *Attempts to convert all custom clothing content to the serializer in the settings.*
 
 
