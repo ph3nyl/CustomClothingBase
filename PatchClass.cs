@@ -309,13 +309,22 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
         return null;
     }
 
-    private static void ExportClothingBase(uint clothingBaseId, bool replace = false)
+    private static void ExportClothingBase(uint clothingBaseId)
     {
+        if (clothingBaseId < 0x10000000 || clothingBaseId > 0x10FFFFFF)
+        {
+            ModManager.Log($"{clothingBaseId:X8} is not a valid ClothingBase between 0x10000000 and 0x10FFFFFF");
+            return;
+        }
+
+        if (!DatManager.PortalDat.AllFiles.ContainsKey(clothingBaseId))
+        {
+            ModManager.Log($"ClothingBase {clothingBaseId:X8} not found.");
+            return;
+        }
+
         string exportFilename = GetFilename(clothingBaseId);
         var cbToExport = DatManager.PortalDat.ReadFromDat<ClothingTable>(clothingBaseId);
-
-        if (File.Exists(exportFilename) && !replace)
-            exportFilename += ".export";
 
         // make sure the mod/json folder exists -- if not, create it
         string path = Path.GetDirectoryName(exportFilename);
