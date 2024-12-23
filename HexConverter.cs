@@ -24,40 +24,44 @@ public class HexConverter<T> : JsonConverter<T> where T : INumber<T>
 /// <summary>
 /// Generic Dictionary converted with numeric keys
 /// </summary>
-public class HexKeyDictionaryConverter<TKey, TValue> : JsonConverter<Dictionary<TKey, TValue>> where TKey : struct, IComparable, IFormattable, INumber<TKey>
+public class HexKeyDictionaryConverter<TKey, TValue> : JsonConverter<Dictionary<TKey, TValue>> where TKey : INumber<TKey>
 {
     public override Dictionary<TKey, TValue> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType != JsonTokenType.StartObject)
-            throw new JsonException("Expected StartObject token.");
+        {
+            throw new JsonException("Expected StartObject token");
+        }
 
         var dictionary = new Dictionary<TKey, TValue>();
 
         while (reader.Read())
         {
             if (reader.TokenType == JsonTokenType.EndObject)
+            {
                 return dictionary;
+            }
 
+            // Read the key as a string
             if (reader.TokenType != JsonTokenType.PropertyName)
-                throw new JsonException("Expected PropertyName token.");
-
-            string propertyName = reader.GetString();
-
-            // Check if the key is a hexadecimal string
-            if (propertyName != null && propertyName.TryParseHex<TKey>(out var result))
             {
-                // Read the value
-                reader.Read();
-                TValue value = JsonSerializer.Deserialize<TValue>(ref reader, options);
-                dictionary[result] = value;
+                throw new JsonException("Expected PropertyName token");
             }
-            else
+
+            string keyHex = reader.GetString();
+            if (!keyHex.TryParseHex<TKey>(out var key))
             {
-                throw new JsonException("Invalid key format. Expected hexadecimal string starting with '0x'.");
+                throw new JsonException($"Invalid hex key: {keyHex}");
             }
+
+            // Read the value
+            reader.Read();
+            TValue value = JsonSerializer.Deserialize<TValue>(ref reader, options);
+
+            dictionary.Add(key, value);
         }
 
-        throw new JsonException("Unexpected end of JSON while reading dictionary.");
+        throw new JsonException("Unexpected end of JSON");
     }
 
     public override void Write(Utf8JsonWriter writer, Dictionary<TKey, TValue> value, JsonSerializerOptions options)
@@ -66,23 +70,12 @@ public class HexKeyDictionaryConverter<TKey, TValue> : JsonConverter<Dictionary<
 
         foreach (var kvp in value)
         {
-            // Write the key as a hex string
-            string keyAsHex = ConvertToHexString(kvp.Key);
-            writer.WritePropertyName(keyAsHex);
-
-            // Serialize the value
+            string keyHex = "0x" + kvp.Key.ToString("X", CultureInfo.InvariantCulture);
+            writer.WritePropertyName(keyHex);
             JsonSerializer.Serialize(writer, kvp.Value, options);
         }
 
         writer.WriteEndObject();
-    }
-
-    private string ConvertToHexString(TKey key)
-    {
-        if (key is IFormattable formattableKey)
-            return $"0x{formattableKey.ToString("X", null)}";
-
-        throw new JsonException("Key type is not a valid numeric type.");
     }
 }
 
@@ -104,8 +97,8 @@ public class HexTypeResolver(HashSet<string> Keys) : DefaultJsonTypeInfoResolver
     {
         var jsonTypeInfo = base.GetTypeInfo(type, options);
 
-        // Apply the converter only to the target type
-        if (jsonTypeInfo != null) //&& type == typeof(ClothingTable))
+        // Apply the converter only to the target types
+        if (jsonTypeInfo != null)
         {
             foreach (var property in jsonTypeInfo.Properties)
             {

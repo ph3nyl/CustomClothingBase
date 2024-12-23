@@ -26,6 +26,10 @@ This will force the ClothingTable to reload; useful to allow you to make changes
 
 > `@convert-clothing` - *Attempts to convert all custom clothing content to the serializer in the settings.*
 
+> `@display-clothing` - *Prints out the ClothingTable of the selected object*
+
+
+
 
 
 ## Settings

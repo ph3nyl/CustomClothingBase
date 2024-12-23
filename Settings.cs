@@ -6,11 +6,13 @@ public class Settings
     public bool ClearCacheOnShutdown { get; set; } = true;
 
     //Property key names that will be serialized as hex strings
-    public HashSet<string> HexKeys { get; set; } = new()
+    public HashSet<string> HexKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {
         "ClothingBaseEffect",
         "PaletteSet",
         "ModelId",
         "Id",
+        "OldTexture",
+        "NewTexture",
     };
 }

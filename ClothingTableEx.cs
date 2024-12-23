@@ -1,18 +1,19 @@
 ﻿using ACE.DatLoader.Entity;
 using ACE.DatLoader.FileTypes;
+using System.Collections.Generic;
 
-//ClothingTable
+//ClothingTableEx
 //  ClothingBaseEffectEx (Dic)
 //      CloObjectEffect (List)
 //          Index
 //          ModelId
-//          CloTextureEffect (List)
+//          CloTextureEffectEx (List)
 //              OldTexture
 //              NewTexture
 //  CloSubPalEffectEx (Dic)
 //      Icon
-//      CloSubPalette (List)
-//          CloSubPaletteRange (List)
+//      CloSubPaletteEx (List)
+//          CloSubPaletteRangeEx (List)
 //              Offset
 //              NumColors
 public class ClothingTableEx : ClothingTable
@@ -27,7 +28,7 @@ public class ClothingTableEx : ClothingTable
         value.Id = Id;
 
         foreach (var cbe in ClothingBaseEffects)
-            value.ClothingBaseEffects.Add( cbe.Key, cbe.Value.Convert());
+            value.ClothingBaseEffects.Add(cbe.Key, cbe.Value.Convert());
 
         foreach (var cbe in ClothingSubPalEffects)
             value.ClothingSubPalEffects.Add(cbe.Key, cbe.Value.Convert());
@@ -66,18 +67,17 @@ public class CloSubPaletteEx : CloSubPalette
 
 public class ClothingBaseEffectEx : ClothingBaseEffect
 {
-    public new List<CloObjectEffectExt> CloObjectEffects { get; set; } = new();
+    public new List<CloObjectEffectEx> CloObjectEffects { get; set; } = new();
 
     public ClothingBaseEffect Convert()
     {
         ClothingBaseEffect value = new();
-        var converted = CloObjectEffects.ConvertAll(x => x.Convert());
         value.CloObjectEffects.AddRange(CloObjectEffects.ConvertAll(x => x.Convert()));
         return value;
     }
 }
 
-public class CloObjectEffectExt : CloObjectEffect
+public class CloObjectEffectEx : CloObjectEffect
 {
     public new uint Index { get; set; }
     public new uint ModelId { get; set; }
@@ -88,9 +88,22 @@ public class CloObjectEffectExt : CloObjectEffect
         CloObjectEffect value = new();
         value.Index = Index;
         value.ModelId = ModelId;
-        value.CloTextureEffects.AddRange(CloTextureEffects);
+        value.CloTextureEffects.AddRange(CloTextureEffects.ConvertAll(x => x.Convert()));
         return value;
     }
 }
 
-public class CloTextureEffectEx : CloTextureEffect { }
+public class CloTextureEffectEx : CloTextureEffect
+{
+    public new uint OldTexture { get; set; }
+    public new uint NewTexture { get; set; }
+
+    public CloTextureEffect Convert()
+    {
+        return new()
+        {
+            NewTexture = this.NewTexture,
+            OldTexture = this.OldTexture,
+        };
+    }
+}

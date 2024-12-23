@@ -21,7 +21,7 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
     static string ModDir => ModManager.GetModContainerByName("CustomClothingBase").FolderPath;
     static string StubDir => Path.Combine(ModDir, "stub");
     static string ContentDir => Path.Combine(ModDir, "json");
-    public static string GetFilename(uint fileId) => Path.Combine(ContentDir, $"{fileId:X}.json");
+    public static string GetFilename(uint fileId) => Path.Combine(ContentDir, $"{fileId:X8}.json");
     public static bool JsonFileExists(uint fileId) => File.Exists(GetFilename(fileId));
 
     public override Task OnWorldOpen()
@@ -31,6 +31,7 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
         _jsonSettings = new()
         {
             WriteIndented = true,
+            PropertyNameCaseInsensitive = true,
             AllowTrailingCommas = true,
             Converters = { },
             TypeInfoResolver = new HexTypeResolver(Settings.HexKeys),
@@ -190,21 +191,7 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
         if (session?.Player is not Player player)
             return;
 
-        //Selected object approach from /delete
-        var objectId = ObjectGuid.Invalid;
-
-        if (session.Player.HealthQueryTarget.HasValue)
-            objectId = new ObjectGuid(session.Player.HealthQueryTarget.Value);
-        else if (session.Player.ManaQueryTarget.HasValue)
-            objectId = new ObjectGuid(session.Player.ManaQueryTarget.Value);
-        else if (session.Player.CurrentAppraisalTarget.HasValue)
-            objectId = new ObjectGuid(session.Player.CurrentAppraisalTarget.Value);
-
-        if (objectId == ObjectGuid.Invalid)
-            ChatPacket.SendServerMessage(session, "Delete failed. Please identify the object you wish to delete first.", ChatMessageType.Broadcast);
-
-        var wo = session.Player.FindObject(objectId.Full, Player.SearchLocations.Everywhere, out _, out Container rootOwner, out bool wasEquipped);
-        if (wo is null)
+        if (!player.TryGetCurrentSelection(out var wo))
         {
             player.SendMessage($"No object is selected.");
             return;
@@ -218,7 +205,63 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
 
         ExportClothingBase(wo.ClothingBase.Value);
 
-        player.SendMessage($"Exported ClothingBase {wo.ClothingBase:X} for {wo.Name} to:\n{GetFilename(wo.ClothingBase.Value)}");
+        player.SendMessage($"Exported ClothingBase {wo.ClothingBase:X8} for {wo.Name} to:\n{GetFilename(wo.ClothingBase.Value)}");
+    }
+
+    [CommandHandler("display-clothing", AccessLevel.Admin, CommandHandlerFlag.RequiresWorld, 0, "Exports ClothingBase entry to a JSON file in the CustomClothingBase mod folder.")]
+    public static void HandleDisplayClothing(Session session, params string[] parameters)
+    {
+        if (session?.Player is not Player player)
+            return;
+
+        if (!player.TryGetCurrentSelection(out var wo))
+        {
+            player.SendMessage($"No object is selected.");
+            return;
+        }
+
+        if (wo.ClothingBase is null || DatManager.PortalDat.ReadFromDat<ClothingTable>(wo.ClothingBase.Value) is not ClothingTable ct)
+        {
+            player.SendMessage($"No ClothingBase found for {wo.Name}");
+            return;
+        }
+
+        StringBuilder sb = new();
+
+        sb.Append($"\n{ct.Id:X8}");
+        sb.Append($"\nClothingBaseEffect");
+        foreach (var cbe in ct.ClothingBaseEffects)
+        {
+            sb.Append($"\n  {cbe.Key:X8}");
+            foreach (var coe in cbe.Value.CloObjectEffects)
+            {
+                sb.Append($"\n    Index {coe.Index}");
+                sb.Append($"\n    ModelId {coe.ModelId:X8}");
+                sb.Append($"\n    CloTextureEffects ({coe.CloTextureEffects.Count})");
+                foreach (var cte in coe.CloTextureEffects)
+                {
+                    sb.Append($"\n      NewTexture {cte.NewTexture:X8}");
+                    sb.Append($"\n      OldTexture {cte.OldTexture:X8}");
+                }
+            }
+        }
+        sb.Append("\nCloSubPalEffect");
+        foreach (var cbe in ct.ClothingSubPalEffects)
+        {
+            sb.Append($"\n  {cbe.Key:X8}");
+            foreach (var csp in cbe.Value.CloSubPalettes)
+            {
+                sb.Append($"\n    PaletteSet {csp.PaletteSet:X8}");
+                sb.Append($"\n    Ranges ({csp.Ranges.Count})");
+                foreach (var cspr in csp.Ranges)
+                {
+                    sb.Append($"\n    NumColors {cspr.NumColors}");
+                    sb.Append($"\n    Offset {cspr.Offset}");
+                }
+            }
+        }
+        ModManager.Log($"{sb}");
+        player.SendMessage($"{sb}");
     }
 
     [CommandHandler("convert-clothing", AccessLevel.Admin, CommandHandlerFlag.None, 0, "Attempts to convert all custom clothing content to the serializer in the settings.")]
@@ -358,6 +401,8 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
             return;
 
         player.EnqueueBroadcast(new GameMessageObjDescEvent(player));
+        foreach(var equipment in player.EquippedObjects.Values)
+            player.EnqueueBroadcast(new GameMessageObjDescEvent(equipment));
 
         ModManager.Log($"Removed {count} ClothingTable entires from FileCache");
     }
