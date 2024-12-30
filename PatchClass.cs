@@ -270,6 +270,14 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
         var conversionDir = Path.Combine(ContentDir, "converted");
         Directory.CreateDirectory(conversionDir);
 
+        JsonSerializerOptions defaultOptions = new()
+        {
+            WriteIndented = true,
+            PropertyNameCaseInsensitive = true,
+            AllowTrailingCommas = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        };
+
         StringBuilder sb = new("Conversion to current JSON format:");
         foreach (var file in Directory.GetFiles(ContentDir, "*.json"))
         {
@@ -279,9 +287,10 @@ public class PatchClass(BasicMod mod, string settingsName = "Settings.json") : B
 
             try
             {
-                var content = JsonSerializer.Deserialize<ClothingTableEx>(json);
+                var content = JsonSerializer.Deserialize<ClothingTableEx>(json, defaultOptions);
                 var converted = JsonSerializer.Serialize<ClothingTableEx>(content, _jsonSettings);
                 var outpath = Path.Combine(conversionDir, fi.Name);
+                
                 File.WriteAllText(outpath, converted);
                 sb.Append($"\nConverted {fi.Name}");
             }
