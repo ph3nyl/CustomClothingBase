@@ -4,7 +4,7 @@
 		<NoWarn>0436;1073;8509</NoWarn>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<OutputPath>C:\ACE\Mods\$(AssemblyName)</OutputPath>
+		<OutputPath>C:\deadgame\Mods\$(AssemblyName)</OutputPath>
 		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
 		<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
@@ -19,7 +19,7 @@
 	</PropertyGroup>
 	<!--ACE References-->
 	<PropertyGroup Condition="!$(Realms)">
-		<ACEPath>C:\ACE\Server</ACEPath>
+		<ACEPath>C:\deadgame\Daralet\dist\apps\server\net8.0</ACEPath>
 	</PropertyGroup>
 	<ItemGroup Condition="!$(Realms)">
 		<PackageReference Include="ACEmulator.ACE.Shared" Version="1.*" />

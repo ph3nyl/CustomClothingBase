@@ -3,7 +3,7 @@ global using ACE.Common.Extensions;
 global using ACE.DatLoader;
 global using ACE.Entity.Enum;
 
-global using ACE.Server.Command;
+global using ACE.Server.Commands;
 global using ACE.Server.Mods;
 #if REALM
 global using Session = ACE.Server.Network.ISession;
